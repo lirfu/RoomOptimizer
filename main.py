@@ -5,6 +5,7 @@ import re
 import random as rd
 import numpy as np
 from itertools import combinations
+from tqdm import tqdm
 
 
 """
@@ -13,6 +14,10 @@ rooms_file: <room_size>,<num_of_rooms>
 names_file: <name>,<surname>,<gender (compared by ==)>
 constraints_file: <index1>,<index2 or *>,<value>
 """
+
+FIT_NO_CONSTRAINTS = 3
+FIT_GENDER_MISSMATCH = 0
+FIT_POWER = 1
 
 
 """ Permutation array. """
@@ -48,6 +53,9 @@ class Genotype:
 		return Genotype(child)
 
 	def mutate(self, perc=0.3):
+		if rd.randrange(0,1) < 0.1:
+			return
+
 		n = rd.randrange(0, round(perc * len(self.arr)))
 		for _ in range(n):
 			i1 = rd.randrange(len(self.arr))
@@ -79,9 +87,9 @@ class ValueMatrix:
 			return v
 		else:  # Implicit values.
 			if self.genders[i] != self.genders[j]:  # Male-female combinations are very discouraged.
-				return 0
+				return FIT_GENDER_MISSMATCH
 
-			return 3.  # DEFAULT value for no connections.
+			return FIT_NO_CONSTRAINTS  # DEFAULT value for no connections.
 
 
 class Evaluator:
@@ -128,9 +136,16 @@ class Evaluator:
 				i += 1
 			
 			# Calculate constraints value for all the pairs.
+			v = 0
+			ctr = 0
 			for t in combinations(room,2):
-				value += self.values.get(t[0],t[1])
+				v += self.values.get(t[0],t[1])
+				ctr += 1
 
+			# Average value, so large rooms are same importance as small.
+			value += v / ctr if ctr > 0 else v
+
+		value = value ** FIT_POWER
 		g.fitness = value
 		return value
 
@@ -163,8 +178,10 @@ def run(e, pop_size=100, max_iter=100):
 		if best is None or g.fitness > best.fitness:
 				best = g
 
+	print('Starting with best:', best.fitness)
+
 	# The Loop.
-	for i in range(1,max_iter+1):
+	for i in tqdm(range(1,max_iter+1)):
 		# Populate new population (elitism).
 		new_pop = [best]
 		new_sum = best.fitness
@@ -179,18 +196,17 @@ def run(e, pop_size=100, max_iter=100):
 			# Update global best.
 			if child.fitness > best.fitness:
 				best = child
+				print('Iteration {} has best: {}'.format(i, best.fitness))
 		# Set the new population.
 		pop = new_pop
 		fit_sum = new_sum
-
-		print('Iteration {} has best: {}'.format(i, best.fitness))
 
 	return best
 
 
 if __name__ == '__main__':
 	evaluator = Evaluator(sys.argv[1], sys.argv[2], sys.argv[3])
-	best = run(evaluator)
+	best = run(evaluator, pop_size=1000, max_iter=1000)
 	
 	result = evaluator.decode(best)
 
