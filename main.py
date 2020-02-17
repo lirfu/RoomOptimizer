@@ -7,23 +7,15 @@ import numpy as np
 from itertools import combinations
 
 
-# Load data.
-def load_array(filepath):
-	arr = []
-	try:
-		with open(filepath, 'r') as f:
-			for l in f:
-				if not l.strip():  # Skip empty lines.
-					continue
-				parts = re.split('[\t,]', l.strip())
-				arr.append(parts)
-	except:
-		print('Cannot parse file:',filepath)
-		exit(1)
-	return arr
+"""
+./script.py rooms_file names_file constraints_file
+rooms_file: <room_size>,<num_of_rooms>
+names_file: <name>,<surname>,<gender (compared by ==)>
+constraints_file: <index1>,<index2 or *>,<value>
+"""
 
 
-# GA stuff
+""" Permutation array. """
 class Genotype:
 	def __init__(self, arr):
 		self.arr = arr
@@ -63,31 +55,60 @@ class Genotype:
 			self.arr[i1], self.arr[i2] = self.arr[i2], self.arr[i1]
 
 
+""" Pairwise cost matrix. """
 class ValueMatrix:
-	def __init__(self, constraints):
+	def __init__(self, constraints, names):
+		self.genders = [n[2] for n in names]
+
+		self.forall_matrix = {}
 		self.matrix = {}
 		for c in constraints:
-			self.matrix[( min(int(c[0]),int(c[1])), max(int(c[0]),int(c[1])) )] = float(c[2])  # Undirected graph.
+			if c[1] == '*':  # Regex, imply same value for all pairs.
+				self.forall_matrix[( int(c[0]) )] = float(c[2])
+			else:
+				self.matrix[( min(int(c[0]),int(c[1])), max(int(c[0]),int(c[1])) )] = float(c[2])  # Undirected graph.
 
 	def get(self,i,j):
-		v = self.matrix.get(( min(i,j),max(i,j) ))
-		if v:
+		# Explicit constraint applyed for all target values has most priority.
+		x, y = self.forall_matrix.get(i), self.forall_matrix.get(j)
+		if x or y:
+			return min(x,y) if x and y else (x if x else y)  # Select lower value if both are present.
+
+		v = self.matrix.get(( min(i,j), max(i,j) ))
+		if v:  # Explicit constraints override implicit.
 			return v
-		else:
+		else:  # Implicit values.
+			if self.genders[i] != self.genders[j]:  # Male-female combinations are very discouraged.
+				return 0
+
 			return 3.  # DEFAULT value for no connections.
 
 
 class Evaluator:
+	def load_array(self, filepath):
+		arr = []
+		try:
+			with open(filepath, 'r') as f:
+				for l in f:
+					if not l.strip():  # Skip empty lines.
+						continue
+					parts = re.split('[\t,]', l.strip())
+					arr.append(parts)
+		except:
+			print('Cannot parse file:',filepath)
+			exit(1)
+		return arr
+
 	def __init__(self, rooms_file, names_file, constraints_file):
-		self.rooms = load_array(rooms_file)  # <room_size>,<num_of_rooms>
+		self.rooms = self.load_array(rooms_file)  # <room_size>,<num_of_rooms>
 		rooms = []
 		for r in self.rooms:
 			for _ in range(int(r[1])):
 				rooms.append(int(r[0]))
 		self.rooms = sorted(rooms)  # Incremental list of room sizes (repetitive).
 
-		self.values = ValueMatrix(load_array(constraints_file))  # <index1>,<index2>,<value>
-		self.names = load_array(names_file)  # <name>,<surname> (index is important)
+		self.names = self.load_array(names_file)  # <name>,<surname>,<gender> (index is important)
+		self.values = ValueMatrix(self.load_array(constraints_file), self.names)  # <index1>,<index2>,<value>
 
 	def guest_count(self):
 		return len(self.names)
